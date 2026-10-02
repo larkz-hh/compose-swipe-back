@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -24,6 +26,7 @@ import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -33,14 +36,37 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
-/** Settling cooldown after a back gesture is committed or cancelled, in milliseconds. */
-private const val BACK_COOLDOWN_MS = 280L
+/**
+ * Default values for the tuning knobs of [SwipeBackScaffold].
+ *
+ * Every value can be overridden through the parameter of the same meaning, so an app can match the gesture
+ * to its own look and feel without touching the library.
+ */
+object SwipeBackDefaults {
+    /** Fraction of the container width a back swipe must cover to commit. */
+    const val BackThreshold = 1f / 3f
 
-/** Gesture progress at which a right swipe activates the predictive back session. */
-private const val BACK_ACTIVATION = 0.05f
+    /** Fraction of the container width a forward swipe must cover to commit. */
+    const val ForwardThreshold = 1f / 4f
 
-/** Velocity above which a horizontal drag counts as a fling, in dp per second. */
-private const val FLING_VELOCITY_DP = 320f
+    /** Damping applied to finger movement while swiping. */
+    const val DragSensitivity = 0.6f
+
+    /** Gesture progress at which a right swipe starts the predictive back session. */
+    const val BackActivationThreshold = 0.05f
+
+    /** Velocity above which a horizontal drag counts as a fling. */
+    val FlingVelocity = 320.dp
+
+    /** Settling cooldown after a back gesture is committed or cancelled. */
+    const val SettleCooldownMillis = 280L
+
+    /** Duration of the spring back animation played when a back swipe stays below the threshold. */
+    const val SpringBackDurationMillis = 160
+
+    /** Duration of the animation that moves the peek in or out around a forward swipe. */
+    const val ForwardAnimationMillis = 220
+}
 
 /**
  * A gesture driven container that turns horizontal drags into navigation transitions.
@@ -61,14 +87,27 @@ private const val FLING_VELOCITY_DP = 320f
  *
  * @param backEnabled whether swiping right pops the current destination.
  * @param backThreshold fraction of the container width a drag must cover to commit a back navigation,
- *   in `0f..1f`. Defaults to one third of the width.
+ *   in `0f..1f`. Defaults to [SwipeBackDefaults.BackThreshold].
  * @param forwardPeek content revealed underneath while swiping left, or `null` to disable forward swiping.
  * @param forwardThreshold fraction of the container width a drag must cover to commit a forward
- *   navigation, in `0f..1f`. Defaults to one quarter of the width.
+ *   navigation, in `0f..1f`. Defaults to [SwipeBackDefaults.ForwardThreshold].
  * @param onCommitForward invoked after a forward swipe is committed and the peek content has been animated
  *   into place.
  * @param dragSensitivity damping applied to finger movement, where the content offset equals
- *   `finger delta * dragSensitivity`. Values below `1f` give a rubber band feel.
+ *   `finger delta * dragSensitivity`. Values below `1f` give a rubber band feel. Defaults to
+ *   [SwipeBackDefaults.DragSensitivity].
+ * @param backActivationThreshold gesture progress at which a right swipe starts the predictive back
+ *   session. Raise it to require a more deliberate swipe before the previous destination is revealed.
+ *   Defaults to [SwipeBackDefaults.BackActivationThreshold].
+ * @param flingVelocity velocity above which a horizontal drag counts as a fling and commits immediately,
+ *   regardless of the drag distance. Defaults to [SwipeBackDefaults.FlingVelocity].
+ * @param settleCooldownMillis cooldown after a back gesture is committed or cancelled during which no new
+ *   back gesture is accepted. It keeps the tail of one gesture from being picked up by the next.
+ *   Defaults to [SwipeBackDefaults.SettleCooldownMillis].
+ * @param springBackDurationMillis duration of the spring back animation played when a back swipe stays
+ *   below [backThreshold]. Defaults to [SwipeBackDefaults.SpringBackDurationMillis].
+ * @param forwardAnimationMillis duration of the animation that slides the current page out and the peek
+ *   into place around a forward swipe. Defaults to [SwipeBackDefaults.ForwardAnimationMillis].
  * @param tabContentRegion returns whether the touch position belongs to a horizontally scrollable region
  *   such as a tab row. Pass `null` when the whole container is a single non-tab page.
  * @param excludeRegion returns `true` to let the gesture reach children unchanged, given the pointer down
@@ -85,11 +124,16 @@ private const val FLING_VELOCITY_DP = 320f
 @Composable
 fun SwipeBackScaffold(
     backEnabled: Boolean,
-    backThreshold: Float = 1f / 3f,
+    backThreshold: Float = SwipeBackDefaults.BackThreshold,
     forwardPeek: (@Composable () -> Unit)? = null,
-    forwardThreshold: Float = 1f / 4f,
+    forwardThreshold: Float = SwipeBackDefaults.ForwardThreshold,
     onCommitForward: () -> Unit = {},
-    dragSensitivity: Float = 0.6f,
+    dragSensitivity: Float = SwipeBackDefaults.DragSensitivity,
+    backActivationThreshold: Float = SwipeBackDefaults.BackActivationThreshold,
+    flingVelocity: Dp = SwipeBackDefaults.FlingVelocity,
+    settleCooldownMillis: Long = SwipeBackDefaults.SettleCooldownMillis,
+    springBackDurationMillis: Int = SwipeBackDefaults.SpringBackDurationMillis,
+    forwardAnimationMillis: Int = SwipeBackDefaults.ForwardAnimationMillis,
     tabContentRegion: ((Offset) -> Boolean)? = null,
     excludeRegion: ((pos: Offset, size: IntSize) -> Boolean)? = null,
     tabAtLeftmost: () -> Boolean = { true },
@@ -98,13 +142,25 @@ fun SwipeBackScaffold(
 ) {
     val density = LocalDensity.current
     val screenWidthPx = LocalWindowInfo.current.containerSize.width.toFloat()
-    val flingVelocityPx = with(density) { FLING_VELOCITY_DP.dp.toPx() }
+    val flingVelocityPx = with(density) { flingVelocity.toPx() }
     val scope = rememberCoroutineScope()
     val forwardActive = forwardPeek != null
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val backActive = backEnabled && backDispatcher != null
     val hasTabRegion = tabContentRegion != null
     val offsetX = remember { Animatable(0f) } // Offset applied while peeking the next destination.
+
+    // The gesture handler below outlives a single recomposition, so every tuning value and callback is read
+    // through the latest state instead of being captured once.
+    val currentDragSensitivity by rememberUpdatedState(dragSensitivity)
+    val currentBackThreshold by rememberUpdatedState(backThreshold)
+    val currentForwardThreshold by rememberUpdatedState(forwardThreshold)
+    val currentBackActivation by rememberUpdatedState(backActivationThreshold)
+    val currentFlingVelocityPx by rememberUpdatedState(flingVelocityPx)
+    val currentSettleCooldown by rememberUpdatedState(settleCooldownMillis)
+    val currentSpringBackDuration by rememberUpdatedState(springBackDurationMillis)
+    val currentForwardAnimation by rememberUpdatedState(forwardAnimationMillis)
+    val currentOnCommitForward by rememberUpdatedState(onCommitForward)
 
     Box(
         modifier = Modifier
@@ -167,11 +223,11 @@ fun SwipeBackScaffold(
                                 }
                             },
                             onDrag = { dragAmount, pos ->
-                                val damped = dragAmount * dragSensitivity
+                                val damped = dragAmount * currentDragSensitivity
                                 if (gestureIsBack == true) {
                                     backAccumulatedX = (backAccumulatedX + damped).coerceAtLeast(0f)
                                     val progress = (backAccumulatedX / screenWidthPx).coerceIn(0f, 1f)
-                                    if (!backStarted && progress >= BACK_ACTIVATION) {
+                                    if (!backStarted && progress >= currentBackActivation) {
                                         // Past the activation threshold: start a predictive back session so the
                                         // previous destination is revealed and dimmed.
                                         backStarted = true
@@ -195,23 +251,23 @@ fun SwipeBackScaffold(
                             },
                             onDragEnd = { velocityX ->
                                 if (gestureIsBack == true) {
-                                    val backFling = velocityX >= flingVelocityPx
+                                    val backFling = velocityX >= currentFlingVelocityPx
                                     // Drag that never passed the activation threshold.
                                     if (!backStarted) {
-                                        if (backFling) backDispatcher?.onBackPressed() // A fling pops immediately.
+                                        if (backFling) backDispatcher?.onBackPressed()
                                         SwipeBackScrimState.revealEntryId = null
                                         SwipeBackScrimState.progress = 0f
                                     } else {
                                         val progress = (backAccumulatedX / screenWidthPx).coerceIn(0f, 1f)
                                         // Settling cooldown before the next gesture is accepted.
                                         backCoolingDown = true
-                                        if (progress >= backThreshold || backFling) {
+                                        if (progress >= currentBackThreshold || backFling) {
                                             // Committed: past the threshold or a fling.
                                             backDispatcher?.onBackPressed()
                                             SwipeBackScrimState.revealEntryId = null
                                             SwipeBackScrimState.progress = 0f
                                             scope.launch {
-                                                delay(BACK_COOLDOWN_MS.milliseconds)
+                                                delay(currentSettleCooldown.milliseconds)
                                                 // Release the gesture flags once the exit animation has played out.
                                                 SwipeBackNavState.gestureDrivenPop = false
                                                 SwipeBackNavState.suppressForwardEnter = false
@@ -221,7 +277,7 @@ fun SwipeBackScaffold(
                                             // Slow drag that stayed below the threshold.
                                             scope.launch {
                                                 val startNanos = withFrameNanos { it } // Timestamp of the next frame.
-                                                val durationNanos = 160_000_000L // Manual spring back of about 160ms.
+                                                val durationNanos = currentSpringBackDuration * 1_000_000L
                                                 var t = 0f
                                                 // Spring the page back frame by frame.
                                                 while (t < 1f) {
@@ -250,19 +306,18 @@ fun SwipeBackScaffold(
                                     }
                                 } else {
                                     val current = offsetX.value
-                                    // Flung to the left.
-                                    val forwardFling = velocityX <= -flingVelocityPx
+                                    val forwardFling = velocityX <= -currentFlingVelocityPx
                                     scope.launch {
                                         if (forwardActive &&
-                                            (current <= -screenWidthPx * forwardThreshold || forwardFling)
+                                            (current <= -screenWidthPx * currentForwardThreshold || forwardFling)
                                         ) {
-                                            offsetX.animateTo(-screenWidthPx, tween(220))
-                                            onCommitForward()
+                                            offsetX.animateTo(-screenWidthPx, tween(currentForwardAnimation))
+                                            currentOnCommitForward()
                                             // Keep the peek until the new page has drawn its first frame.
                                             repeat(6) { withFrameNanos { } }
                                             offsetX.snapTo(0f)
                                         } else {
-                                            offsetX.animateTo(0f, tween(220))
+                                            offsetX.animateTo(0f, tween(currentForwardAnimation))
                                         }
                                     }
                                 }
