@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -24,8 +26,11 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -52,7 +57,7 @@ object SwipeBackDefaults {
     /** Damping applied to finger movement while swiping. */
     const val DragSensitivity = 0.6f
 
-    /** Gesture progress at which a right swipe starts the predictive back session. */
+    /** Gesture progress at which a back swipe starts the predictive back session. */
     const val BackActivationThreshold = 0.05f
 
     /** Velocity above which a horizontal drag counts as a fling. */
@@ -71,8 +76,12 @@ object SwipeBackDefaults {
 /**
  * A gesture driven container that turns horizontal drags into navigation transitions.
  *
- * Swiping right pops the current destination with the predictive back animation, swiping left peeks the
- * next destination and commits a forward navigation when the drag passes [forwardThreshold].
+ * A swipe toward the start edge pops the current destination with the predictive back animation, a swipe
+ * toward the end edge peeks the next destination and commits a forward navigation when the drag passes
+ * [forwardThreshold].
+ *
+ * The gesture follows the layout direction: in an RTL layout the back swipe comes from the right edge and
+ * the peek is revealed on the left, so the component can be used in mirrored locales without changes.
  *
  * ```kotlin
  * SwipeBackScaffold(
@@ -85,10 +94,11 @@ object SwipeBackDefaults {
  * }
  * ```
  *
- * @param backEnabled whether swiping right pops the current destination.
+ * @param backEnabled whether a swipe toward the start edge pops the current destination.
  * @param backThreshold fraction of the container width a drag must cover to commit a back navigation,
  *   in `0f..1f`. Defaults to [SwipeBackDefaults.BackThreshold].
- * @param forwardPeek content revealed underneath while swiping left, or `null` to disable forward swiping.
+ * @param forwardPeek content revealed underneath while swiping toward the end edge, or `null` to disable
+ *   forward swiping.
  * @param forwardThreshold fraction of the container width a drag must cover to commit a forward
  *   navigation, in `0f..1f`. Defaults to [SwipeBackDefaults.ForwardThreshold].
  * @param onCommitForward invoked after a forward swipe is committed and the peek content has been animated
@@ -96,7 +106,7 @@ object SwipeBackDefaults {
  * @param dragSensitivity damping applied to finger movement, where the content offset equals
  *   `finger delta * dragSensitivity`. Values below `1f` give a rubber band feel. Defaults to
  *   [SwipeBackDefaults.DragSensitivity].
- * @param backActivationThreshold gesture progress at which a right swipe starts the predictive back
+ * @param backActivationThreshold gesture progress at which a back swipe starts the predictive back
  *   session. Raise it to require a more deliberate swipe before the previous destination is revealed.
  *   Defaults to [SwipeBackDefaults.BackActivationThreshold].
  * @param flingVelocity velocity above which a horizontal drag counts as a fling and commits immediately,
@@ -141,7 +151,11 @@ fun SwipeBackScaffold(
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
-    val screenWidthPx = LocalWindowInfo.current.containerSize.width.toFloat()
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val backDragSign = if (isRtl) -1f else 1f
+    val forwardDragSign = -backDragSign
+    val windowWidthPx = LocalWindowInfo.current.containerSize.width.toFloat()
+    var containerWidthPx by remember { mutableFloatStateOf(windowWidthPx) }
     val flingVelocityPx = with(density) { flingVelocity.toPx() }
     val scope = rememberCoroutineScope()
     val forwardActive = forwardPeek != null
@@ -160,11 +174,14 @@ fun SwipeBackScaffold(
     val currentSettleCooldown by rememberUpdatedState(settleCooldownMillis)
     val currentSpringBackDuration by rememberUpdatedState(springBackDurationMillis)
     val currentForwardAnimation by rememberUpdatedState(forwardAnimationMillis)
+    val currentContainerWidthPx by rememberUpdatedState(containerWidthPx)
+    val currentIsRtl by rememberUpdatedState(isRtl)
     val currentOnCommitForward by rememberUpdatedState(onCommitForward)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { containerWidthPx = it.width.toFloat() }
             .then(
                 if (backActive || forwardActive) {
                     Modifier.pointerInput(backActive, forwardActive, hasTabRegion, excludeRegion != null) {
@@ -172,8 +189,13 @@ fun SwipeBackScaffold(
                         var backAccumulatedX = 0f
                         var backStarted = false
                         var backCoolingDown = false
+                        val gestureBackSign = if (currentIsRtl) -1f else 1f
+                        val gestureForwardSign = -gestureBackSign
+                        val gestureBackEdge =
+                            if (currentIsRtl) BackEventCompat.EDGE_RIGHT else BackEventCompat.EDGE_LEFT
 
                         detectLockingHorizontalDrag(
+                            backSign = gestureBackSign,
                             interceptAtDown = { pos ->
                                 if (!hasTabRegion) {
                                     false
@@ -225,8 +247,8 @@ fun SwipeBackScaffold(
                             onDrag = { dragAmount, pos ->
                                 val damped = dragAmount * currentDragSensitivity
                                 if (gestureIsBack == true) {
-                                    backAccumulatedX = (backAccumulatedX + damped).coerceAtLeast(0f)
-                                    val progress = (backAccumulatedX / screenWidthPx).coerceIn(0f, 1f)
+                                    backAccumulatedX = (backAccumulatedX + damped * gestureBackSign).coerceAtLeast(0f)
+                                    val progress = (backAccumulatedX / currentContainerWidthPx).coerceIn(0f, 1f)
                                     if (!backStarted && progress >= currentBackActivation) {
                                         // Past the activation threshold: start a predictive back session so the
                                         // previous destination is revealed and dimmed.
@@ -235,30 +257,33 @@ fun SwipeBackScaffold(
                                         SwipeBackNavState.suppressForwardEnter = true // Suppress the forward enter.
                                         SwipeBackScrimState.revealEntryId = revealEntryId()
                                         backDispatcher?.dispatchOnBackStarted(
-                                            BackEventCompat(pos.x, pos.y, 0f, BackEventCompat.EDGE_LEFT)
+                                            BackEventCompat(pos.x, pos.y, 0f, gestureBackEdge)
                                         )
                                     }
                                     if (backStarted) {
                                         SwipeBackScrimState.progress = progress
                                         backDispatcher?.dispatchOnBackProgressed(
-                                            BackEventCompat(pos.x, pos.y, progress, BackEventCompat.EDGE_LEFT)
+                                            BackEventCompat(pos.x, pos.y, progress, gestureBackEdge)
                                         )
                                     }
                                 } else {
-                                    val target = (offsetX.value + damped).coerceIn(-screenWidthPx, 0f)
+                                    val target = (offsetX.value + damped).coerceIn(
+                                        minOf(0f, gestureForwardSign * currentContainerWidthPx),
+                                        maxOf(0f, gestureForwardSign * currentContainerWidthPx),
+                                    )
                                     scope.launch { offsetX.snapTo(target) }
                                 }
                             },
                             onDragEnd = { velocityX ->
                                 if (gestureIsBack == true) {
-                                    val backFling = velocityX >= currentFlingVelocityPx
+                                    val backFling = velocityX * gestureBackSign >= currentFlingVelocityPx
                                     // Drag that never passed the activation threshold.
                                     if (!backStarted) {
                                         if (backFling) backDispatcher?.onBackPressed()
                                         SwipeBackScrimState.revealEntryId = null
                                         SwipeBackScrimState.progress = 0f
                                     } else {
-                                        val progress = (backAccumulatedX / screenWidthPx).coerceIn(0f, 1f)
+                                        val progress = (backAccumulatedX / currentContainerWidthPx).coerceIn(0f, 1f)
                                         // Settling cooldown before the next gesture is accepted.
                                         backCoolingDown = true
                                         if (progress >= currentBackThreshold || backFling) {
@@ -286,12 +311,12 @@ fun SwipeBackScaffold(
                                                     val p = progress * (1f - t)
                                                     SwipeBackScrimState.progress = p // Progress held by this frame.
                                                     backDispatcher?.dispatchOnBackProgressed(
-                                                        BackEventCompat(0f, 0f, p, BackEventCompat.EDGE_LEFT)
+                                                        BackEventCompat(0f, 0f, p, gestureBackEdge)
                                                     )
                                                 }
                                                 repeat(3) {
                                                     backDispatcher?.dispatchOnBackProgressed(
-                                                        BackEventCompat(0f, 0f, 0f, BackEventCompat.EDGE_LEFT)
+                                                        BackEventCompat(0f, 0f, 0f, gestureBackEdge)
                                                     )
                                                     withFrameNanos { }
                                                 }
@@ -306,12 +331,16 @@ fun SwipeBackScaffold(
                                     }
                                 } else {
                                     val current = offsetX.value
-                                    val forwardFling = velocityX <= -currentFlingVelocityPx
+                                    val forwardFling = velocityX * gestureForwardSign >= currentFlingVelocityPx
                                     scope.launch {
                                         if (forwardActive &&
-                                            (current <= -screenWidthPx * currentForwardThreshold || forwardFling)
+                                            (current * gestureForwardSign >=
+                                                currentContainerWidthPx * currentForwardThreshold || forwardFling)
                                         ) {
-                                            offsetX.animateTo(-screenWidthPx, tween(currentForwardAnimation))
+                                            offsetX.animateTo(
+                                                gestureForwardSign * currentContainerWidthPx,
+                                                tween(currentForwardAnimation),
+                                            )
                                             currentOnCommitForward()
                                             // Keep the peek until the new page has drawn its first frame.
                                             repeat(6) { withFrameNanos { } }
@@ -336,8 +365,8 @@ fun SwipeBackScaffold(
         }
 
         // Peek of the next destination.
-        if (forwardActive && offset < 0f) {
-            val forwardOffsetPx = (offset + screenWidthPx).roundToInt()
+        if (forwardActive && offset * forwardDragSign > 0f) {
+            val forwardOffsetPx = (offset - forwardDragSign * containerWidthPx).roundToInt()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -401,6 +430,7 @@ fun Modifier.blockPageSwipe(enabled: Boolean = true): Modifier =
  * The direction and the handling mode are decided a single time per gesture, which keeps the container
  * from changing its mind halfway through a drag.
  *
+ * @param backSign sign of the horizontal drag that counts as a back swipe: `1f` in LTR and `-1f` in RTL.
  * @param interceptAtDown whether the gesture is intercepted from the initial pass when the pointer goes
  *   down at this position.
  * @param bypassAtDown whether the gesture is handed to children unchanged.
@@ -410,6 +440,7 @@ fun Modifier.blockPageSwipe(enabled: Boolean = true): Modifier =
  * @param onDragEnd invoked with the horizontal velocity when the pointer goes up.
  */
 private suspend fun PointerInputScope.detectLockingHorizontalDrag(
+    backSign: Float,
     interceptAtDown: (Offset) -> Boolean,
     bypassAtDown: (Offset) -> Boolean = { false },
     resolveLock: (isBack: Boolean, position: Offset) -> LockMode,
@@ -455,7 +486,7 @@ private suspend fun PointerInputScope.detectLockingHorizontalDrag(
                 val absY = abs(accumulatedY)
                 when {
                     absX > touchSlop && absX > absY -> {
-                        val isBack = accumulatedX > 0f
+                        val isBack = accumulatedX * backSign > 0f
                         when (resolveLock(isBack, change.position)) {
                             LockMode.RELEASE -> break
                             LockMode.CONSUME -> {
