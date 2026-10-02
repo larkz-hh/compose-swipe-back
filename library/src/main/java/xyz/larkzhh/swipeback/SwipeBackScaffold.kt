@@ -159,7 +159,7 @@ fun SwipeBackScaffold(
 ) {
     val density = LocalDensity.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val backDragSign = if (isRtl) -1f else 1f
+    val backDragSign = SwipeBackGestureMath.backDragSign(isRtl)
     val forwardDragSign = -backDragSign
     val windowWidthPx = LocalWindowInfo.current.containerSize.width.toFloat()
     var containerWidthPx by remember { mutableFloatStateOf(windowWidthPx) }
@@ -197,7 +197,7 @@ fun SwipeBackScaffold(
                         var backAccumulatedX = 0f
                         var backStarted = false
                         var backCoolingDown = false
-                        val gestureBackSign = if (currentIsRtl) -1f else 1f
+                        val gestureBackSign = SwipeBackGestureMath.backDragSign(currentIsRtl)
                         val gestureForwardSign = -gestureBackSign
                         val gestureBackEdge =
                             if (currentIsRtl) BackEventCompat.EDGE_RIGHT else BackEventCompat.EDGE_LEFT
@@ -261,8 +261,8 @@ fun SwipeBackScaffold(
                                 val damped = dragAmount * currentDragSensitivity
                                 if (gestureIsBack == true) {
                                     backAccumulatedX = (backAccumulatedX + damped * gestureBackSign).coerceAtLeast(0f)
-                                    val progress = (backAccumulatedX / currentContainerWidthPx).coerceIn(0f, 1f)
-                                    if (!backStarted && progress >= currentBackActivation) {
+                                    val progress = SwipeBackGestureMath.backProgress(backAccumulatedX, currentContainerWidthPx)
+                                    if (!backStarted && SwipeBackGestureMath.shouldActivateBack(progress, currentBackActivation)) {
                                         // Past the activation threshold: start a predictive back session so the
                                         // previous destination is revealed and dimmed.
                                         backStarted = true
@@ -280,26 +280,28 @@ fun SwipeBackScaffold(
                                         )
                                     }
                                 } else {
-                                    val target = (offsetX.value + damped).coerceIn(
-                                        minOf(0f, gestureForwardSign * currentContainerWidthPx),
-                                        maxOf(0f, gestureForwardSign * currentContainerWidthPx),
+                                    val target = SwipeBackGestureMath.forwardOffset(
+                                        offsetX.value,
+                                        damped,
+                                        currentContainerWidthPx,
+                                        gestureForwardSign,
                                     )
                                     scope.launch { offsetX.snapTo(target) }
                                 }
                             },
                             onDragEnd = { velocityX ->
                                 if (gestureIsBack == true) {
-                                    val backFling = velocityX * gestureBackSign >= currentFlingVelocityPx
+                                    val backFling = SwipeBackGestureMath.isFling(velocityX, gestureBackSign, currentFlingVelocityPx)
                                     // Drag that never passed the activation threshold.
                                     if (!backStarted) {
                                         if (backFling) performBack()
                                         SwipeBackScrimState.revealEntryId = null
                                         SwipeBackScrimState.progress = 0f
                                     } else {
-                                        val progress = (backAccumulatedX / currentContainerWidthPx).coerceIn(0f, 1f)
+                                        val progress = SwipeBackGestureMath.backProgress(backAccumulatedX, currentContainerWidthPx)
                                         // Settling cooldown before the next gesture is accepted.
                                         backCoolingDown = true
-                                        if (progress >= currentBackThreshold || backFling) {
+                                        if (SwipeBackGestureMath.shouldCommitBack(progress, currentBackThreshold, backFling)) {
                                             // Committed: past the threshold or a fling.
                                             performBack()
                                             SwipeBackScrimState.revealEntryId = null
@@ -344,11 +346,16 @@ fun SwipeBackScaffold(
                                     }
                                 } else {
                                     val current = offsetX.value
-                                    val forwardFling = velocityX * gestureForwardSign >= currentFlingVelocityPx
+                                    val forwardFling = SwipeBackGestureMath.isFling(velocityX, gestureForwardSign, currentFlingVelocityPx)
                                     scope.launch {
                                         if (forwardActive &&
-                                            (current * gestureForwardSign >=
-                                                currentContainerWidthPx * currentForwardThreshold || forwardFling)
+                                            SwipeBackGestureMath.shouldCommitForward(
+                                                current,
+                                                currentContainerWidthPx,
+                                                currentForwardThreshold,
+                                                gestureForwardSign,
+                                                forwardFling,
+                                            )
                                         ) {
                                             offsetX.animateTo(
                                                 gestureForwardSign * currentContainerWidthPx,
@@ -378,8 +385,9 @@ fun SwipeBackScaffold(
         }
 
         // Peek of the next destination.
-        if (forwardActive && offset * forwardDragSign > 0f) {
-            val forwardOffsetPx = (offset - forwardDragSign * containerWidthPx).roundToInt()
+        if (forwardActive && SwipeBackGestureMath.isPeekVisible(offset, forwardDragSign)) {
+            val forwardOffsetPx =
+                SwipeBackGestureMath.peekOffsetPx(offset, containerWidthPx, forwardDragSign).roundToInt()
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -499,7 +507,7 @@ private suspend fun PointerInputScope.detectLockingHorizontalDrag(
                 val absY = abs(accumulatedY)
                 when {
                     absX > touchSlop && absX > absY -> {
-                        val isBack = accumulatedX * backSign > 0f
+                        val isBack = SwipeBackGestureMath.isBackDrag(accumulatedX, backSign)
                         when (resolveLock(isBack, change.position)) {
                             LockMode.RELEASE -> break
                             LockMode.CONSUME -> {
