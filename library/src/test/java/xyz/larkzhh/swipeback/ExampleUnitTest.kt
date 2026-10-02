@@ -1,4 +1,4 @@
-package xyz.larkzhh.library
+package xyz.larkzhh.swipeback
 
 import org.junit.Test
 
