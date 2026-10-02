@@ -94,7 +94,8 @@ object SwipeBackDefaults {
  * }
  * ```
  *
- * @param backEnabled whether a swipe toward the start edge pops the current destination.
+ * @param backEnabled whether a swipe toward the start edge pops the current destination. Completing a pop
+ *   needs either an `OnBackPressedDispatcher` or [onBack].
  * @param backThreshold fraction of the container width a drag must cover to commit a back navigation,
  *   in `0f..1f`. Defaults to [SwipeBackDefaults.BackThreshold].
  * @param forwardPeek content revealed underneath while swiping toward the end edge, or `null` to disable
@@ -103,6 +104,11 @@ object SwipeBackDefaults {
  *   navigation, in `0f..1f`. Defaults to [SwipeBackDefaults.ForwardThreshold].
  * @param onCommitForward invoked after a forward swipe is committed and the peek content has been animated
  *   into place.
+ * @param onBack invoked when a back swipe is committed, instead of sending the back press to the
+ *   `OnBackPressedDispatcher`. Provide it to drive a custom navigation stack, or to use the gesture where no
+ *   dispatcher exists, such as in a preview. Predictive back events are only sent to the dispatcher when this
+ *   is `null`, because the platform expects the back press that ends the session, and a session that never
+ *   ends would leave the system transition hanging.
  * @param dragSensitivity damping applied to finger movement, where the content offset equals
  *   `finger delta * dragSensitivity`. Values below `1f` give a rubber band feel. Defaults to
  *   [SwipeBackDefaults.DragSensitivity].
@@ -138,6 +144,7 @@ fun SwipeBackScaffold(
     forwardPeek: (@Composable () -> Unit)? = null,
     forwardThreshold: Float = SwipeBackDefaults.ForwardThreshold,
     onCommitForward: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
     dragSensitivity: Float = SwipeBackDefaults.DragSensitivity,
     backActivationThreshold: Float = SwipeBackDefaults.BackActivationThreshold,
     flingVelocity: Dp = SwipeBackDefaults.FlingVelocity,
@@ -160,7 +167,7 @@ fun SwipeBackScaffold(
     val scope = rememberCoroutineScope()
     val forwardActive = forwardPeek != null
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-    val backActive = backEnabled && backDispatcher != null
+    val backActive = backEnabled && (onBack != null || backDispatcher != null)
     val hasTabRegion = tabContentRegion != null
     val offsetX = remember { Animatable(0f) } // Offset applied while peeking the next destination.
 
@@ -177,6 +184,7 @@ fun SwipeBackScaffold(
     val currentContainerWidthPx by rememberUpdatedState(containerWidthPx)
     val currentIsRtl by rememberUpdatedState(isRtl)
     val currentOnCommitForward by rememberUpdatedState(onCommitForward)
+    val currentOnBack by rememberUpdatedState(onBack)
 
     Box(
         modifier = Modifier
@@ -193,6 +201,11 @@ fun SwipeBackScaffold(
                         val gestureForwardSign = -gestureBackSign
                         val gestureBackEdge =
                             if (currentIsRtl) BackEventCompat.EDGE_RIGHT else BackEventCompat.EDGE_LEFT
+                        val gestureDispatcher = if (currentOnBack == null) backDispatcher else null
+                        val performBack: () -> Unit = {
+                            val callback = currentOnBack
+                            if (callback != null) callback() else backDispatcher?.onBackPressed()
+                        }
 
                         detectLockingHorizontalDrag(
                             backSign = gestureBackSign,
@@ -256,13 +269,13 @@ fun SwipeBackScaffold(
                                         SwipeBackNavState.gestureDrivenPop = true // This pop is driven by the gesture.
                                         SwipeBackNavState.suppressForwardEnter = true // Suppress the forward enter.
                                         SwipeBackScrimState.revealEntryId = revealEntryId()
-                                        backDispatcher?.dispatchOnBackStarted(
+                                        gestureDispatcher?.dispatchOnBackStarted(
                                             BackEventCompat(pos.x, pos.y, 0f, gestureBackEdge)
                                         )
                                     }
                                     if (backStarted) {
                                         SwipeBackScrimState.progress = progress
-                                        backDispatcher?.dispatchOnBackProgressed(
+                                        gestureDispatcher?.dispatchOnBackProgressed(
                                             BackEventCompat(pos.x, pos.y, progress, gestureBackEdge)
                                         )
                                     }
@@ -279,7 +292,7 @@ fun SwipeBackScaffold(
                                     val backFling = velocityX * gestureBackSign >= currentFlingVelocityPx
                                     // Drag that never passed the activation threshold.
                                     if (!backStarted) {
-                                        if (backFling) backDispatcher?.onBackPressed()
+                                        if (backFling) performBack()
                                         SwipeBackScrimState.revealEntryId = null
                                         SwipeBackScrimState.progress = 0f
                                     } else {
@@ -288,7 +301,7 @@ fun SwipeBackScaffold(
                                         backCoolingDown = true
                                         if (progress >= currentBackThreshold || backFling) {
                                             // Committed: past the threshold or a fling.
-                                            backDispatcher?.onBackPressed()
+                                            performBack()
                                             SwipeBackScrimState.revealEntryId = null
                                             SwipeBackScrimState.progress = 0f
                                             scope.launch {
@@ -310,17 +323,17 @@ fun SwipeBackScaffold(
                                                     t = ((now - startNanos).toFloat() / durationNanos).coerceIn(0f, 1f)
                                                     val p = progress * (1f - t)
                                                     SwipeBackScrimState.progress = p // Progress held by this frame.
-                                                    backDispatcher?.dispatchOnBackProgressed(
+                                                    gestureDispatcher?.dispatchOnBackProgressed(
                                                         BackEventCompat(0f, 0f, p, gestureBackEdge)
                                                     )
                                                 }
                                                 repeat(3) {
-                                                    backDispatcher?.dispatchOnBackProgressed(
+                                                    gestureDispatcher?.dispatchOnBackProgressed(
                                                         BackEventCompat(0f, 0f, 0f, gestureBackEdge)
                                                     )
                                                     withFrameNanos { }
                                                 }
-                                                backDispatcher?.dispatchOnBackCancelled()
+                                                gestureDispatcher?.dispatchOnBackCancelled()
                                                 SwipeBackScrimState.revealEntryId = null
                                                 SwipeBackScrimState.progress = 0f
                                                 SwipeBackNavState.gestureDrivenPop = false
