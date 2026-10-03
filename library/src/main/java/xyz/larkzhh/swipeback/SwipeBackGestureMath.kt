@@ -1,5 +1,8 @@
 package xyz.larkzhh.swipeback
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
+
 /**
  * Pure helpers behind the gesture of [SwipeBackScaffold].
  *
@@ -57,4 +60,65 @@ internal object SwipeBackGestureMath {
 
     /** Whether the peek is visible at the given content offset. */
     fun isPeekVisible(offsetPx: Float, forwardSign: Float): Boolean = offsetPx * forwardSign > 0f
+    /**
+     * Whether the container claims the gesture from the initial pass when the pointer goes down here.
+     *
+     * A screen without a scrollable region defers to children first. Inside a scrollable region the container
+     * claims the gesture unless the region sits on a page where a back swipe may not start.
+     */
+    fun interceptFromStart(policy: SwipeBackPolicy, position: Offset, size: IntSize): Boolean =
+        if (!policy.hasScrollableRegion()) {
+            false
+        } else {
+            !policy.isInScrollableRegion(position, size) || policy.isAtLeftmost()
+        }
+
+    /**
+     * Decision table for a resolved gesture.
+     *
+     * @param canHandleBack whether a back swipe is accepted right now, which also requires the settle
+     *   cooldown to have passed.
+     * @param backEnabled whether a back swipe is enabled at all.
+     * @param forwardEnabled whether the host provided a peek for forward swipes.
+     */
+    fun resolveHandling(
+        policy: SwipeBackPolicy,
+        direction: SwipeBackDirection,
+        position: Offset,
+        size: IntSize,
+        canHandleBack: Boolean,
+        backEnabled: Boolean,
+        forwardEnabled: Boolean,
+    ): SwipeBackGestureHandling {
+        val hasRegion = policy.hasScrollableRegion()
+        val inRegion = hasRegion && policy.isInScrollableRegion(position, size)
+        return when {
+            inRegion && !policy.isAtLeftmost() -> SwipeBackGestureHandling.LET_CHILDREN
+            inRegion -> when {
+                direction == SwipeBackDirection.BACK && canHandleBack -> SwipeBackGestureHandling.HANDLE
+                direction == SwipeBackDirection.BACK && backEnabled -> SwipeBackGestureHandling.CONSUME
+                else -> SwipeBackGestureHandling.LET_CHILDREN
+            }
+            direction == SwipeBackDirection.BACK && canHandleBack -> SwipeBackGestureHandling.HANDLE
+            direction == SwipeBackDirection.BACK && backEnabled -> SwipeBackGestureHandling.CONSUME
+            direction == SwipeBackDirection.FORWARD && forwardEnabled -> SwipeBackGestureHandling.HANDLE
+            hasRegion -> SwipeBackGestureHandling.CONSUME
+            else -> SwipeBackGestureHandling.LET_CHILDREN
+        }
+    }
+}
+
+/** Direction of a horizontal gesture, once it has been resolved. */
+internal enum class SwipeBackDirection { BACK, FORWARD }
+
+/** What the container does with a resolved horizontal gesture. */
+internal enum class SwipeBackGestureHandling {
+    /** Drive the gesture: pop when swiping back, peek when swiping forward. */
+    HANDLE,
+
+    /** Keep the gesture away from children without acting on it, so the page stays put. */
+    CONSUME,
+
+    /** Hand the gesture to children unchanged. */
+    LET_CHILDREN,
 }

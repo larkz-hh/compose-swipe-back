@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -108,5 +110,32 @@ class SwipeBackScaffoldGestureTest {
         dragPage { swipeRight(startX = left + 5f, endX = right - 5f) }
         assertEquals(0, backs)
         assertEquals(1, commits)
+    }
+
+    @Test
+    fun `a policy that hands the gesture to children blocks navigation`() {
+        var backs = 0
+
+        composeRule.setContent {
+            SwipeBackScaffold(
+                backEnabled = true,
+                forwardPeek = { Box(Modifier.fillMaxSize()) },
+                onBack = { backs++ },
+                policy = object : SwipeBackPolicy {
+                    override fun letChildrenHandle(position: Offset, size: IntSize) = true
+                },
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag(PageTag),
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(PageTag).performTouchInput { swipeRight(startX = left + 5f, endX = right - 5f) }
+        composeRule.waitForIdle()
+
+        assertEquals(0, backs)
     }
 }

@@ -132,6 +132,8 @@ object SwipeBackDefaults {
  *   gesture progress back to zero. Defaults to [SwipeBackDefaults.SpringBackSpec].
  * @param forwardAnimationSpec animation that slides the current page out and the peek into place around a
  *   forward swipe. Defaults to [SwipeBackDefaults.ForwardAnimationSpec].
+ * @param policy decides where the gesture may start and when it gives way to children. When it is `null`,
+ *   a policy is built from [tabContentRegion], [tabAtLeftmost] and [excludeRegion].
  * @param tabContentRegion returns whether the touch position belongs to a horizontally scrollable region
  *   such as a tab row. Pass `null` when the whole container is a single non-tab page.
  * @param excludeRegion returns `true` to let the gesture reach children unchanged, given the pointer down
@@ -159,6 +161,7 @@ fun SwipeBackScaffold(
     settleCooldownMillis: Long = SwipeBackDefaults.SettleCooldownMillis,
     springBackAnimationSpec: AnimationSpec<Float> = SwipeBackDefaults.SpringBackSpec,
     forwardAnimationSpec: AnimationSpec<Float> = SwipeBackDefaults.ForwardAnimationSpec,
+    policy: SwipeBackPolicy? = null,
     tabContentRegion: ((Offset) -> Boolean)? = null,
     excludeRegion: ((pos: Offset, size: IntSize) -> Boolean)? = null,
     tabAtLeftmost: () -> Boolean = { true },
@@ -176,7 +179,7 @@ fun SwipeBackScaffold(
     val forwardActive = forwardPeek != null
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
     val backActive = backEnabled && (onBack != null || backDispatcher != null)
-    val hasTabRegion = tabContentRegion != null
+    val gesturePolicy = policy ?: legacyPolicy(tabContentRegion, tabAtLeftmost, excludeRegion)
     val offsetX = remember { Animatable(0f) } // Offset applied while peeking the next destination.
 
     // The gesture handler below outlives a single recomposition, so every tuning value and callback is read
@@ -193,6 +196,7 @@ fun SwipeBackScaffold(
     val currentIsRtl by rememberUpdatedState(isRtl)
     val currentOnCommitForward by rememberUpdatedState(onCommitForward)
     val currentOnBack by rememberUpdatedState(onBack)
+    val currentPolicy by rememberUpdatedState(gesturePolicy)
 
     Box(
         modifier = Modifier
@@ -200,7 +204,7 @@ fun SwipeBackScaffold(
             .onSizeChanged { containerWidthPx = it.width.toFloat() }
             .then(
                 if (backActive || forwardActive) {
-                    Modifier.pointerInput(backActive, forwardActive, hasTabRegion, excludeRegion != null) {
+                    Modifier.pointerInput(backActive, forwardActive, gesturePolicy.hasScrollableRegion()) {
                         var gestureIsBack: Boolean? = null // Direction resolved for the current gesture.
                         var backAccumulatedX = 0f
                         var backStarted = false
@@ -218,42 +222,23 @@ fun SwipeBackScaffold(
                         detectLockingHorizontalDrag(
                             backSign = gestureBackSign,
                             interceptAtDown = { pos ->
-                                if (!hasTabRegion) {
-                                    false
-                                } else {
-                                    val inTab = tabContentRegion?.invoke(pos) ?: false
-                                    !inTab || tabAtLeftmost()
-                                }
+                                SwipeBackGestureMath.interceptFromStart(currentPolicy, pos, size)
                             },
-                            bypassAtDown = { pos -> excludeRegion?.invoke(pos, size) ?: false },
+                            bypassAtDown = { pos -> currentPolicy.letChildrenHandle(pos, size) },
                             resolveLock = { isBack, pos ->
-                                val canBack = backActive && !backCoolingDown
-                                if (!hasTabRegion) {
-                                    // Non-tab pages, such as a detail screen, accept the back gesture everywhere.
-                                    when {
-                                        isBack && canBack -> LockMode.ACT
-                                        isBack && backActive -> LockMode.CONSUME
-                                        !isBack && forwardActive -> LockMode.ACT
-                                        else -> LockMode.RELEASE
-                                    }
-                                } else {
-                                    val inTab = tabContentRegion?.invoke(pos) ?: false
-                                    if (inTab) {
-                                        // Inside a tab region the back gesture only starts from the leftmost tab.
-                                        when {
-                                            isBack && tabAtLeftmost() && canBack -> LockMode.ACT
-                                            isBack && tabAtLeftmost() && backActive -> LockMode.CONSUME
-                                            else -> LockMode.RELEASE
-                                        }
-                                    } else {
-                                        // Outside a tab region of a tabbed screen the back gesture always applies.
-                                        when {
-                                            isBack && canBack -> LockMode.ACT
-                                            isBack && backActive -> LockMode.CONSUME
-                                            !isBack && forwardActive -> LockMode.ACT
-                                            else -> LockMode.CONSUME
-                                        }
-                                    }
+                                val handling = SwipeBackGestureMath.resolveHandling(
+                                    policy = currentPolicy,
+                                    direction = if (isBack) SwipeBackDirection.BACK else SwipeBackDirection.FORWARD,
+                                    position = pos,
+                                    size = size,
+                                    canHandleBack = backActive && !backCoolingDown,
+                                    backEnabled = backActive,
+                                    forwardEnabled = forwardActive,
+                                )
+                                when (handling) {
+                                    SwipeBackGestureHandling.HANDLE -> LockMode.ACT
+                                    SwipeBackGestureHandling.CONSUME -> LockMode.CONSUME
+                                    SwipeBackGestureHandling.LET_CHILDREN -> LockMode.RELEASE
                                 }
                             },
                             onLock = { isBack, _ ->
