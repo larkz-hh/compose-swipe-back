@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -71,6 +73,12 @@ object SwipeBackDefaults {
 
     /** Duration of the animation that moves the peek in or out around a forward swipe. */
     const val ForwardAnimationMillis = 220
+
+    /** Spring back animation played when a back swipe stays below the commit threshold. */
+    val SpringBackSpec: AnimationSpec<Float> = tween(SpringBackDurationMillis, easing = LinearEasing)
+
+    /** Animation that moves the peek in or out around a forward swipe. */
+    val ForwardAnimationSpec: AnimationSpec<Float> = tween(ForwardAnimationMillis)
 }
 
 /**
@@ -120,10 +128,10 @@ object SwipeBackDefaults {
  * @param settleCooldownMillis cooldown after a back gesture is committed or cancelled during which no new
  *   back gesture is accepted. It keeps the tail of one gesture from being picked up by the next.
  *   Defaults to [SwipeBackDefaults.SettleCooldownMillis].
- * @param springBackDurationMillis duration of the spring back animation played when a back swipe stays
- *   below [backThreshold]. Defaults to [SwipeBackDefaults.SpringBackDurationMillis].
- * @param forwardAnimationMillis duration of the animation that slides the current page out and the peek
- *   into place around a forward swipe. Defaults to [SwipeBackDefaults.ForwardAnimationMillis].
+ * @param springBackAnimationSpec animation played when a back swipe stays below [backThreshold], driving the
+ *   gesture progress back to zero. Defaults to [SwipeBackDefaults.SpringBackSpec].
+ * @param forwardAnimationSpec animation that slides the current page out and the peek into place around a
+ *   forward swipe. Defaults to [SwipeBackDefaults.ForwardAnimationSpec].
  * @param tabContentRegion returns whether the touch position belongs to a horizontally scrollable region
  *   such as a tab row. Pass `null` when the whole container is a single non-tab page.
  * @param excludeRegion returns `true` to let the gesture reach children unchanged, given the pointer down
@@ -149,8 +157,8 @@ fun SwipeBackScaffold(
     backActivationThreshold: Float = SwipeBackDefaults.BackActivationThreshold,
     flingVelocity: Dp = SwipeBackDefaults.FlingVelocity,
     settleCooldownMillis: Long = SwipeBackDefaults.SettleCooldownMillis,
-    springBackDurationMillis: Int = SwipeBackDefaults.SpringBackDurationMillis,
-    forwardAnimationMillis: Int = SwipeBackDefaults.ForwardAnimationMillis,
+    springBackAnimationSpec: AnimationSpec<Float> = SwipeBackDefaults.SpringBackSpec,
+    forwardAnimationSpec: AnimationSpec<Float> = SwipeBackDefaults.ForwardAnimationSpec,
     tabContentRegion: ((Offset) -> Boolean)? = null,
     excludeRegion: ((pos: Offset, size: IntSize) -> Boolean)? = null,
     tabAtLeftmost: () -> Boolean = { true },
@@ -179,8 +187,8 @@ fun SwipeBackScaffold(
     val currentBackActivation by rememberUpdatedState(backActivationThreshold)
     val currentFlingVelocityPx by rememberUpdatedState(flingVelocityPx)
     val currentSettleCooldown by rememberUpdatedState(settleCooldownMillis)
-    val currentSpringBackDuration by rememberUpdatedState(springBackDurationMillis)
-    val currentForwardAnimation by rememberUpdatedState(forwardAnimationMillis)
+    val currentSpringBackSpec by rememberUpdatedState(springBackAnimationSpec)
+    val currentForwardAnimationSpec by rememberUpdatedState(forwardAnimationSpec)
     val currentContainerWidthPx by rememberUpdatedState(containerWidthPx)
     val currentIsRtl by rememberUpdatedState(isRtl)
     val currentOnCommitForward by rememberUpdatedState(onCommitForward)
@@ -316,17 +324,15 @@ fun SwipeBackScaffold(
                                         } else {
                                             // Slow drag that stayed below the threshold.
                                             scope.launch {
-                                                val startNanos = withFrameNanos { it } // Timestamp of the next frame.
-                                                val durationNanos = currentSpringBackDuration * 1_000_000L
-                                                var t = 0f
-                                                // Spring the page back frame by frame.
-                                                while (t < 1f) {
-                                                    val now = withFrameNanos { it }
-                                                    t = ((now - startNanos).toFloat() / durationNanos).coerceIn(0f, 1f)
-                                                    val p = progress * (1f - t)
-                                                    SwipeBackScrimState.progress = p // Progress held by this frame.
+                                                val springBack = Animatable(progress)
+                                                springBack.animateTo(
+                                                    targetValue = 0f,
+                                                    animationSpec = currentSpringBackSpec,
+                                                ) {
+                                                    val frame = value.coerceIn(0f, 1f)
+                                                    SwipeBackScrimState.progress = frame
                                                     gestureDispatcher?.dispatchOnBackProgressed(
-                                                        BackEventCompat(0f, 0f, p, gestureBackEdge)
+                                                        BackEventCompat(0f, 0f, frame, gestureBackEdge)
                                                     )
                                                 }
                                                 repeat(3) {
@@ -359,14 +365,14 @@ fun SwipeBackScaffold(
                                         ) {
                                             offsetX.animateTo(
                                                 gestureForwardSign * currentContainerWidthPx,
-                                                tween(currentForwardAnimation),
+                                                currentForwardAnimationSpec,
                                             )
                                             currentOnCommitForward()
                                             // Keep the peek until the new page has drawn its first frame.
                                             repeat(6) { withFrameNanos { } }
                                             offsetX.snapTo(0f)
                                         } else {
-                                            offsetX.animateTo(0f, tween(currentForwardAnimation))
+                                            offsetX.animateTo(0f, currentForwardAnimationSpec)
                                         }
                                     }
                                 }

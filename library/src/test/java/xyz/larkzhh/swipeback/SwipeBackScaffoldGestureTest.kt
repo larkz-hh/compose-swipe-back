@@ -15,6 +15,7 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.unit.LayoutDirection
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -62,6 +63,19 @@ class SwipeBackScaffoldGestureTest {
     private fun dragPage(block: androidx.compose.ui.test.TouchInjectionScope.() -> Unit) {
         composeRule.onNodeWithTag(PageTag).performTouchInput(block)
         composeRule.waitForIdle()
+    }
+
+    @Test
+    fun `a drag below the threshold springs back without navigating`() {
+        setScaffold()
+
+        dragPage { swipeRight(startX = left + 5f, endX = left + 105f) }
+
+        assertEquals(0, backs)
+        assertEquals(0, commits)
+        composeRule.waitUntil(timeoutMillis = 2_000) { SwipeBackScrimState.progress == 0f }
+        assertEquals(0f, SwipeBackScrimState.progress, 0.001f)
+        assertNull(SwipeBackScrimState.revealEntryId)
     }
 
     @Test

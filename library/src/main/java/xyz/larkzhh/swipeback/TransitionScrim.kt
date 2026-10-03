@@ -34,12 +34,14 @@ object SwipeBackScrimState {
  * @param entryId id of the navigation back stack entry this page belongs to. It is compared against
  *   [SwipeBackScrimState.revealEntryId] to decide whether this page is the one being revealed.
  * @param maxAlpha alpha of the scrim at the start of the gesture. It fades out as the gesture progresses.
+ * @param scrimColor color of the scrim. Defaults to black.
  * @param content the content of the page.
  */
 @Composable
 fun ScrimBox(
     entryId: String?,
     maxAlpha: Float = 0.3f,
+    scrimColor: Color = Color.Black,
     content: @Composable () -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -49,7 +51,7 @@ fun ScrimBox(
             ((1f - SwipeBackScrimState.progress) * maxAlpha).coerceIn(0f, maxAlpha)
         } else 0f
         if (alpha > 0.001f) {
-            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = alpha)))
+            Box(Modifier.matchParentSize().background(scrimColor.copy(alpha = alpha)))
         }
     }
 }
