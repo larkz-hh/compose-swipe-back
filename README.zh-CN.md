@@ -21,7 +21,7 @@ compose-swipe-back 是一个用横向滑动处理返回和前进的 Compose 库�
 ## 引入
 
 ```kotlin
-implementation("com.github.larkz-hh:compose-swipe-back:0.1.0")
+implementation("com.github.larkz-hh:compose-swipe-back:0.2.0")
 ```
 
 要求 minSdk 26、Compose 1.7+、activity-compose 1.8+。预测性返回动画需要 Android 13+，并在 `<application>` 上启用 `android:enableOnBackInvokedCallback`。

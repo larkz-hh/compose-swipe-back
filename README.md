@@ -23,7 +23,7 @@ dependency and works with Navigation Compose or a custom back stack.
 ## Download
 
 ```kotlin
-implementation("com.github.larkz-hh:compose-swipe-back:0.1.0")
+implementation("com.github.larkz-hh:compose-swipe-back:0.2.0")
 ```
 
 minSdk 26, Compose 1.7+ and activity-compose 1.8+. The predictive back animation needs Android 13+ and
