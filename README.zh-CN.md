@@ -2,6 +2,10 @@
 
 [![JitPack](https://jitpack.io/v/larkz-hh/compose-swipe-back.svg)](https://jitpack.io/#larkz-hh/compose-swipe-back)
 [![CI](https://github.com/larkz-hh/compose-swipe-back/actions/workflows/ci.yml/badge.svg)](https://github.com/larkz-hh/compose-swipe-back/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![minSdk](https://img.shields.io/badge/minSdk-26-green.svg)](#引入)
+[![Compose](https://img.shields.io/badge/Compose-1.7%2B-4285F4.svg)](#引入)
+[![Stars](https://img.shields.io/github/stars/larkz-hh/compose-swipe-back?style=flat)](https://github.com/larkz-hh/compose-swipe-back/stargazers)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -69,8 +73,8 @@ SwipeBackScaffold(
 | `backActivationThreshold` | `0.05f` | 开启预测性返回会话的进度 |
 | `flingVelocity` | `320.dp` | 视为快速轻弹的速度 |
 | `settleCooldownMillis` | `280L` | 一次返回手势后的冷却时间 |
-| `springBackDurationMillis` | `160` | 未达阈值时回弹动画的时长 |
-| `forwardAnimationMillis` | `220` | 前进预览动画的时长 |
+| `springBackAnimationSpec` | `SwipeBackDefaults.SpringBackSpec` | 返回手势未达阈值时播放的动画 |
+| `forwardAnimationSpec` | `SwipeBackDefaults.ForwardAnimationSpec` | 前进预览滑入滑出的动画 |
 | `tabContentRegion` | `null` | 属于横向滚动区域的触摸位置 |
 | `excludeRegion` | `null` | 该区域内手势交由子级处理 |
 | `tabAtLeftmost` | `{ true }` | 当前选中的 Tab 是否为最左侧 |

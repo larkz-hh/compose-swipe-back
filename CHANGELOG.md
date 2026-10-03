@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `ScrimBox` accepts a `scrimColor`, so the scrim no longer has to be black.
+- `SwipeBackDefaults.SpringBackSpec` and `SwipeBackDefaults.ForwardAnimationSpec`.
+
+### Changed
+
+- `SwipeBackScaffold` takes `springBackAnimationSpec` and `forwardAnimationSpec` instead of
+  `springBackDurationMillis` and `forwardAnimationMillis`. Defaults keep the previous durations and the spring
+  back keeps its linear easing, so the out of the box behaviour is unchanged.
+
 ## [0.1.0] - 2026-10-03
 
 ### Added

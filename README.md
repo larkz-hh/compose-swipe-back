@@ -2,6 +2,10 @@
 
 [![JitPack](https://jitpack.io/v/larkz-hh/compose-swipe-back.svg)](https://jitpack.io/#larkz-hh/compose-swipe-back)
 [![CI](https://github.com/larkz-hh/compose-swipe-back/actions/workflows/ci.yml/badge.svg)](https://github.com/larkz-hh/compose-swipe-back/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![minSdk](https://img.shields.io/badge/minSdk-26-green.svg)](#download)
+[![Compose](https://img.shields.io/badge/Compose-1.7%2B-4285F4.svg)](#download)
+[![Stars](https://img.shields.io/github/stars/larkz-hh/compose-swipe-back?style=flat)](https://github.com/larkz-hh/compose-swipe-back/stargazers)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -72,8 +76,8 @@ Parameters of `SwipeBackScaffold`:
 | `backActivationThreshold` | `0.05f` | Progress that starts the predictive back session |
 | `flingVelocity` | `320.dp` | Velocity that counts as a fling |
 | `settleCooldownMillis` | `280L` | Cooldown after a back gesture |
-| `springBackDurationMillis` | `160` | Duration of the spring back animation |
-| `forwardAnimationMillis` | `220` | Duration of the peek animation |
+| `springBackAnimationSpec` | `SwipeBackDefaults.SpringBackSpec` | Animation played when a back swipe stays below the threshold |
+| `forwardAnimationSpec` | `SwipeBackDefaults.ForwardAnimationSpec` | Animation that moves the peek in and out |
 | `tabContentRegion` | `null` | Touch positions that belong to a horizontally scrollable region |
 | `excludeRegion` | `null` | Positions where the gesture is handed to children |
 | `tabAtLeftmost` | `{ true }` | Whether the selected tab is the leftmost one |
