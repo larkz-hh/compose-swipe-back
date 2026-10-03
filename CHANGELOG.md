@@ -1,0 +1,18 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- `SwipeBackScaffold` gesture container with predictive back and forward peek.
+- `ScrimBox` and `SwipeBackScrimState` for dimming the page during a back gesture.
+- `SwipeBackNavState` flags for suppressing host navigation transitions.
+- `Modifier.blockPageSwipe` so overlays keep horizontal drags away from the page gesture.
+- `SwipeBackDefaults` plus matching parameters for every tuning value.
+- Support for RTL layouts, where the back gesture comes from the right edge.
+- Unit tests for the gesture math and gesture integration tests running on Robolectric.
