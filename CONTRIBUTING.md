@@ -18,6 +18,10 @@ Thanks for taking the time to contribute. Issues and pull requests are both welc
 
 `:library` holds the published code, `:app` is a sample that consumes it.
 
+On Windows, git does not record the executable bit. After adding or replacing `gradlew`, run
+`git update-index --chmod=+x gradlew` before committing: CI runs the wrapper on Linux, where a
+non-executable `gradlew` fails the build.
+
 Dependencies resolve from Google and Maven Central. A Chinese mirror is used first by default; set
 `USE_CN_MIRROR=false` to skip it.
 
