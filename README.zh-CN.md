@@ -75,13 +75,15 @@ SwipeBackScaffold(
 | `settleCooldownMillis` | `280L` | 一次返回手势后的冷却时间 |
 | `springBackAnimationSpec` | `SwipeBackDefaults.SpringBackSpec` | 返回手势未达阈值时播放的动画 |
 | `forwardAnimationSpec` | `SwipeBackDefaults.ForwardAnimationSpec` | 前进预览滑入滑出的动画 |
+| `policy` | `null` | 决定手势从哪里可以开始、何时让给子级 |
 | `tabContentRegion` | `null` | 属于横向滚动区域的触摸位置 |
 | `excludeRegion` | `null` | 该区域内手势交由子级处理 |
 | `tabAtLeftmost` | `{ true }` | 当前选中的 Tab 是否为最左侧 |
 | `revealEntryId` | `{ null }` | 返回过程中要露出的页面 id |
 | `content` | — | 当前页面的内容 |
 
-`SwipeBackDefaults` 是这些默认值的集中定义处。`ScrimBox(entryId, maxAlpha = 0.3f)` 在页面被露出时压暗它，
+`SwipeBackDefaults` 是这些默认值的集中定义处，`SwipeBackPolicy` 则收拢了“手势从哪里可以开始”这类决策。
+`ScrimBox(entryId, maxAlpha = 0.3f)` 在页面被露出时压暗它，
 `Modifier.blockPageSwipe()` 用于拦截遮罩层上的横向拖拽。
 
 手势进行期间会设置以下标志位，供自行管理转场的宿主读取：

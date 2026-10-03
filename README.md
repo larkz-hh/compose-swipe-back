@@ -78,13 +78,15 @@ Parameters of `SwipeBackScaffold`:
 | `settleCooldownMillis` | `280L` | Cooldown after a back gesture |
 | `springBackAnimationSpec` | `SwipeBackDefaults.SpringBackSpec` | Animation played when a back swipe stays below the threshold |
 | `forwardAnimationSpec` | `SwipeBackDefaults.ForwardAnimationSpec` | Animation that moves the peek in and out |
+| `policy` | `null` | Decides where the gesture may start and when it gives way to children |
 | `tabContentRegion` | `null` | Touch positions that belong to a horizontally scrollable region |
 | `excludeRegion` | `null` | Positions where the gesture is handed to children |
 | `tabAtLeftmost` | `{ true }` | Whether the selected tab is the leftmost one |
 | `revealEntryId` | `{ null }` | Id of the entry revealed while swiping back |
 | `content` | — | Content of the current screen |
 
-`SwipeBackDefaults` holds those defaults. `ScrimBox(entryId, maxAlpha = 0.3f)` dims a page while it is being
+`SwipeBackDefaults` holds those defaults, and `SwipeBackPolicy` collects the decisions about where a gesture
+may start. `ScrimBox(entryId, maxAlpha = 0.3f)` dims a page while it is being
 revealed, and `Modifier.blockPageSwipe()` keeps drags on an overlay away from the page gesture.
 
 Flags the gesture sets for hosts that animate their own transitions:
